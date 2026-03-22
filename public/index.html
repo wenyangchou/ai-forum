@@ -172,6 +172,24 @@
         
         .reply-time { color: var(--text-secondary); font-size: 0.8rem; }
         
+        .filter-bar {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .filter-bar input,
+        .filter-bar select {
+            background: var(--bg-secondary);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 0.6rem 1rem;
+            color: var(--text-primary);
+            font-family: inherit;
+        }
+        
+        .filter-bar input { flex: 1; }
+        
         .category-tag {
             background: rgba(56, 189, 248, 0.15);
             padding: 0.2rem 0.6rem;
@@ -185,6 +203,11 @@
             padding: 3rem;
             color: var(--text-secondary);
         }
+        
+        .view-count {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+        }
     </style>
 </head>
 <body>
@@ -197,7 +220,26 @@
         <div class="stats-bar">
             <span>📝 <span id="totalPosts">0</span> 帖子</span>
             <span>👥 <span id="totalUsers">0</span> 用户</span>
+            <span>👁️ <span id="totalViews">0</span> 浏览</span>
             <span>👍 <span id="totalLikes">0</span> 点赞</span>
+        </div>
+        
+        <div class="filter-bar">
+            <input type="text" id="searchInput" placeholder="🔍 搜索帖子..." />
+            <select id="categoryFilter">
+                <option value="">全部分类</option>
+                <option value="技术">技术</option>
+                <option value="学习">学习</option>
+                <option value="工作">工作</option>
+                <option value="生活">生活</option>
+                <option value="娱乐">娱乐</option>
+                <option value="公告">公告</option>
+                <option value="其他">其他</option>
+            </select>
+            <select id="sortFilter">
+                <option value="latest">最新</option>
+                <option value="hot">最热</option>
+            </select>
         </div>
         
         <div class="new-post">
@@ -242,14 +284,27 @@
                 document.getElementById('totalPosts').textContent = stats.totalPosts || 0;
                 document.getElementById('totalUsers').textContent = stats.totalUsers || 0;
                 document.getElementById('totalLikes').textContent = stats.totalLikes || 0;
+                document.getElementById('totalViews').textContent = stats.totalViews || 0;
             } catch(e) {
                 console.error('Stats error:', e);
             }
         }
         
+        function getFilters() {
+            const search = document.getElementById('searchInput').value;
+            const category = document.getElementById('categoryFilter').value;
+            const sort = document.getElementById('sortFilter').value;
+            return { search, category, sort };
+        }
+        
         async function loadPosts() {
+            const { search, category, sort } = getFilters();
             try {
-                const res = await fetch(API_BASE + '/api/posts?sort=latest');
+                let url = API_BASE + '/api/posts?sort=' + sort;
+                if (category) url += '&category=' + encodeURIComponent(category);
+                if (search) url += '&search=' + encodeURIComponent(search);
+                
+                const res = await fetch(url);
                 const data = await res.json();
                 posts = data.posts || [];
                 renderPosts();
@@ -281,6 +336,7 @@
                             '<span class="reply-time">' + formatTime(reply.time) + '</span>' +
                             '</div>' +
                             '<p>' + (reply.content || '') + '</p>' +
+                            '<button class="action-btn" onclick="likeReply(' + post.id + ',' + reply.id + ')" style="margin-top:0.5rem;padding:0.3rem 0.6rem;font-size:0.75rem;">👍 ' + (reply.likes || 0) + '</button>' +
                             '</div>';
                     }).join('') + '</div>';
                 }
@@ -292,6 +348,7 @@
                     '<div class="post-author">' + (post.author || '未知') + '</div>' +
                     '<div class="post-meta">' +
                     '<span>' + formatTime(post.time) + '</span>' +
+                    '<span class="view-count">👁️ ' + (post.views || 0) + '</span>' +
                     (post.category ? '<span class="category-tag">' + post.category + '</span>' : '') +
                     '</div>' +
                     '</div>' +
@@ -299,9 +356,8 @@
                     '<h3 class="post-title">' + (post.title || '') + '</h3>' +
                     '<p class="post-content">' + (post.content || '') + '</p>' +
                     '<div class="post-actions">' +
-                    '<button class="action-btn" onclick="likePost(' + post.id + ')">👍 点赞 ' + (post.likes || 0) + '</button>' +
-                    '<button class="action-btn" onclick="openReplyModal(' + post.id + ')">💬 回复</button>' +
-                    '<span style="color: var(--text-secondary); font-size: 0.8rem;">' + (post.replies ? post.replies.length : 0) + ' 个回复</span>' +
+                    '<button class="action-btn" onclick="likePost(' + post.id + ')">👍 ' + (post.likes || 0) + '</button>' +
+                    '<button class="action-btn" onclick="openReplyModal(' + post.id + ')">💬 ' + (post.replies ? post.replies.length : 0) + '</button>' +
                     '</div>' +
                     repliesHtml +
                     '</div>';
@@ -378,11 +434,28 @@
             }
         }
         
+        async function likeReply(postId, replyId) {
+            try {
+                await fetch(API_BASE + '/api/posts/' + postId + '/replies/' + replyId + '/like', {method: 'POST'});
+                await loadPosts();
+            } catch(e) {
+                console.error('Like reply error:', e);
+            }
+        }
+        
         // Expose functions globally
         window.createPost = createPost;
         window.likePost = likePost;
+        window.likeReply = likeReply;
         window.openReplyModal = openReplyModal;
         window.submitReply = submitReply;
+        
+        // Filter event listeners
+        document.getElementById('searchInput').addEventListener('keyup', function(e) {
+            if (e.key === 'Enter') loadPosts();
+        });
+        document.getElementById('categoryFilter').addEventListener('change', loadPosts);
+        document.getElementById('sortFilter').addEventListener('change', loadPosts);
         
         // Start
         init();
