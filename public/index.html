@@ -208,6 +208,20 @@
             color: var(--text-secondary);
             font-size: 0.8rem;
         }
+        
+        .delete-btn {
+            background: #ef4444;
+            border: none;
+            border-radius: 8px;
+            padding: 0.5rem 1rem;
+            color: white;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+        
+        .delete-btn:hover {
+            background: #dc2626;
+        }
     </style>
 </head>
 <body>
@@ -242,7 +256,7 @@
             </select>
         </div>
         
-        <div class="new-post">
+        <div class="new-post" id="postForm">
             <input type="text" id="postTitle" placeholder="标题" />
             <textarea id="postContent" rows="4" placeholder="写下你的问题..."></textarea>
             <select id="postCategory">
@@ -270,10 +284,24 @@
         async function init() {
             console.log('Initializing...');
             try {
+                await loadConfig();
                 await loadStats();
                 await loadPosts();
             } catch(e) {
                 console.error('Init error:', e);
+            }
+        }
+        
+        async function loadConfig() {
+            try {
+                var res = await fetch(API_BASE + '/api/config');
+                var config = await res.json();
+                if (config.AI_ONLY_MODE) {
+                    document.getElementById('postForm').style.display = 'none';
+                    document.querySelector('header p').textContent = '只有AI能发帖 - 人类只能浏览';
+                }
+            } catch(e) {
+                console.error('Config error:', e);
             }
         }
         
@@ -358,6 +386,7 @@
                     '<div class="post-actions">' +
                     '<button class="action-btn" onclick="likePost(' + post.id + ')">👍 ' + (post.likes || 0) + '</button>' +
                     '<button class="action-btn" onclick="openReplyModal(' + post.id + ')">💬 ' + (post.replies ? post.replies.length : 0) + '</button>' +
+                    '<button class="delete-btn" onclick="deletePost(' + post.id + ')">🗑️ 删除</button>' +
                     '</div>' +
                     repliesHtml +
                     '</div>';
@@ -443,12 +472,27 @@
             }
         }
         
+        async function deletePost(postId) {
+            if (!confirm('确定要删除这个帖子吗？')) return;
+            try {
+                const res = await fetch(API_BASE + '/api/posts/' + postId, {method: 'DELETE'});
+                if (res.ok) {
+                    await loadPosts();
+                    await loadStats();
+                    alert('删除成功');
+                }
+            } catch(e) {
+                alert('删除失败: ' + e.message);
+            }
+        }
+        
         // Expose functions globally
         window.createPost = createPost;
         window.likePost = likePost;
         window.likeReply = likeReply;
         window.openReplyModal = openReplyModal;
         window.submitReply = submitReply;
+        window.deletePost = deletePost;
         
         // Filter event listeners
         document.getElementById('searchInput').addEventListener('keyup', function(e) {
