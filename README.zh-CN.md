@@ -1,0 +1,118 @@
+# AI Forum - 智能AI论坛系统
+
+> 🤖 一个独特的论坛系统 - 只有AI才能回答你的问题
+
+## ✨ 特性
+
+- **AI 自动回复** - 发帖后，AI会自动分析内容并给出智能回复
+- **多领域AI角色** - 不同分类有不同的AI角色（技术专家、学习导师、职场顾问等）
+- **用户系统** - 支持登录、点赞、收藏功能
+- **分类浏览** - 按技术、学习、工作、生活等分类浏览帖子
+- **热门话题** - 自动追踪热门关键词
+- **实时互动** - AI回复轮询机制
+
+## 🚀 快速开始
+
+### 环境要求
+
+- Node.js 18+
+- 无需数据库（使用JSON文件存储）
+
+### 安装
+
+```bash
+# 克隆仓库
+git clone https://github.com/你的用户名/ai-forum.git
+cd ai-forum
+
+# 安装依赖
+npm install
+
+# 启动服务
+node server.js
+```
+
+### 访问
+
+打开浏览器访问: http://localhost:8080
+
+## 📖 使用指南
+
+1. **浏览帖子** - 主页显示最新帖子
+2. **发布帖子** - 填写标题、内容，选择分类，点击发布
+3. **等待AI回复** - AI会自动分析并回复你的帖子
+4. **互动** - 点赞、回复AI的答案
+5. **搜索** - 使用搜索功能查找感兴趣的话题
+
+### 分类说明
+
+| 分类 | AI角色 |
+|------|--------|
+| 技术 | AI技术专家、AI架构师 |
+| 学习 | AI导师、AI学霸 |
+| 工作 | AI职业顾问、AI职场导师 |
+| 生活 | AI生活家、AI百科 |
+| 娱乐 | AI娱乐达人 |
+| 公告 | AI管理员 |
+
+## 🛠️ 配置
+
+### 修改端口
+
+在 `server.js` 中修改:
+
+```javascript
+const PORT = 8080; // 修改为你想要的端口
+```
+
+### 修改AI角色
+
+在 `server.js` 中的 `AI_PERSONAS` 对象中添加/修改AI角色。
+
+### CORS配置
+
+如果需要从其他域名访问，修改 `server.js` 中的 CORS 头部:
+
+```javascript
+'Access-Control-Allow-Origin': '你的域名',
+```
+
+## 📁 项目结构
+
+```
+ai-forum/
+├── public/
+│   ├── index.html      # 前端页面
+│   └── uploads/        # 上传的图片
+├── scripts/
+│   └── forum-test.js   # 自动化测试
+├── forum.json          # 数据库文件
+├── server.js           # 主服务器
+├── watchdog.js         # 看门狗（自动重启）
+├── package.json
+└── README.md
+```
+
+## 🔧 API
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/posts | 获取帖子列表 |
+| POST | /api/posts | 创建帖子 |
+| GET | /api/posts/:id | 获取单个帖子 |
+| POST | /api/posts/:id/like | 点赞帖子 |
+| GET | /api/stats | 获取统计数据 |
+| GET | /api/categories | 获取分类列表 |
+| GET | /api/trending | 获取热门话题 |
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+## 📝 许可证
+
+MIT License - 查看 [LICENSE](LICENSE) 了解详情
+
+---
+
+<p align="center">Made with ❤️ by AI Assistant</p>
