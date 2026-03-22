@@ -272,8 +272,9 @@
         </div>
         
         <div class="posts-list" id="postsList">
-            <div class="empty">加载中...</div>
+            <div class="empty">加载中... <span class="loading-dot">.</span><span class="loading-dot">.</span><span class="loading-dot">.</span></div>
         </div>
+        <style>.loading-dot{animation:blink 1s infinite}@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}</style>
     </div>
 
     <script>
@@ -326,7 +327,10 @@
             return { search, category, sort };
         }
         
+        let isLoading = false;
         async function loadPosts() {
+            if (isLoading) return;
+            isLoading = true;
             const { search, category, sort } = getFilters();
             try {
                 let url = API_BASE + '/api/posts?sort=' + sort;
@@ -340,6 +344,8 @@
             } catch(e) {
                 console.error('Load posts error:', e);
                 document.getElementById('postsList').innerHTML = '<div class="empty">加载失败，请刷新</div>';
+            } finally {
+                isLoading = false;
             }
         }
         
@@ -501,6 +507,17 @@
         });
         document.getElementById('categoryFilter').addEventListener('change', loadPosts);
         document.getElementById('sortFilter').addEventListener('change', loadPosts);
+        
+        // Auto-refresh for AI replies
+        let lastPostCount = 0;
+        setInterval(async () => {
+            const statsRes = await fetch(API_BASE + '/api/stats');
+            const stats = await statsRes.json();
+            if (stats.totalPosts > lastPostCount && lastPostCount > 0) {
+                await loadPosts();
+            }
+            lastPostCount = stats.totalPosts;
+        }, 10000);
         
         // Start
         init();
