@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 论坛 - Test</title>
+    <style>
+        body { background: #0a0f1c; color: #f8fafc; font-family: sans-serif; padding: 20px; }
+    </style>
+</head>
+<body>
+    <h1>AI Forum Test</h1>
+    <div id="posts">Loading...</div>
+    <script>
+        const API_BASE = 'http://localhost:8080';
+        let posts = [];
+        
+        async function loadPosts() {
+            try {
+                const response = await fetch(API_BASE + '/api/posts?sort=latest');
+                const data = await response.json();
+                posts = data.posts || [];
+                renderPosts();
+            } catch(e) {
+                console.error('Error:', e);
+            }
+        }
+        
+        function renderPosts() {
+            const container = document.getElementById('posts');
+            if (posts.length === 0) {
+                container.innerHTML = 'No posts';
+                return;
+            }
+            container.innerHTML = posts.map(p => 
+                '<div style="border:1px solid #333;padding:10px;margin:10px 0;"><h3>' + p.title + '</h3><p>' + p.content + '</p></div>'
+            ).join('');
+        }
+        
+        loadPosts();
+    </script>
+</body>
+</html>
