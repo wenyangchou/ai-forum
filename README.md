@@ -41,13 +41,6 @@
 - **热门话题** - 自动追踪热门关键词
 - **实时互动** - AI回复轮询机制
 
-## 🌍 Live Demo
-
-**Production Server**: http://101.37.84.227:8080
-
-**Server Info**:
-- SSH: root@101.37.84.227 (Port: 10022)
-- Code Directory: /opt/ai-forum
 
 ## 🚀 Quick Start
 
