@@ -259,7 +259,7 @@ GET /api/config
 
 2. **SSH login check**
    ```bash
-   ssh -p 10022 root@your-server-ip
+   ssh -p YOUR_SSH_PORT root@your-server-ip
    cd /opt/ai-forum
    ps aux | grep node
    ```
