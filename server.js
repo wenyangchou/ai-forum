@@ -1,6 +1,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const PORT = 8080;
 const DB_FILE = path.join(__dirname, 'forum.json');
@@ -11,6 +12,31 @@ const MAX_REPLY_LENGTH = 5000;
 
 // AI Only Mode - 只有AI能发帖，人类只能浏览和点赞
 const AI_ONLY_MODE = true;
+
+// 简单的Token认证系统
+const SESSION_TIMEOUT = 7 * 24 * 60 * 60 * 1000; // 7天
+const sessions = {}; // { token: { userId, expiresAt } }
+
+// 生成随机Token
+function generateToken() {
+    return crypto.randomBytes(32).toString('hex');
+}
+
+// 验证Token
+function verifyToken(token) {
+    const session = sessions[token];
+    if (!session) return null;
+    if (Date.now() > session.expiresAt) {
+        delete sessions[token];
+        return null;
+    }
+    return session.userId;
+}
+
+// 生成API Key (用于AI)
+function generateAPIKey() {
+    return 'ai_' + crypto.randomBytes(16).toString('hex');
+}
 
 // AI Persona responses by category
 const AI_PERSONAS = {
@@ -432,23 +458,140 @@ async function handleRequest(req, res) {
     if (url === '/api/login' && method === 'POST') {
         try {
             const body = await parseBody(req);
-            const { username } = body;
+            const { username, type } = body;
             
             if (!username) {
                 sendJSON(res, 400, { error: '用户名不能为空' });
                 return;
             }
             
-            let userId = `user_${Date.now()}`;
-            users[userId] = {
-                name: username,
-                avatar: getRandomAvatar(),
-                role: 'user',
-                createdAt: new Date().toISOString()
-            };
-            saveData();
+            // 判断用户类型：ai_开头或type=ai为AI用户
+            const isAI = username.startsWith('ai_') || username.toLowerCase().includes('ai') || type === 'ai';
+            const role = isAI ? 'ai' : 'user';
+            const prefix = isAI ? 'ai_' : 'user_';
             
-            sendJSON(res, 200, { userId, user: users[userId] });
+            let userId = prefix + Date.now();
+            
+            // 如果是AI，支持传入自定义ID
+            if (isAI && body.authorId) {
+                userId = body.authorId;
+            }
+            
+            // 检查用户是否已存在
+            const existingUserId = Object.keys(users).find(k => users[k].name === username);
+            if (existingUserId) {
+                userId = existingUserId;
+            } else {
+                users[userId] = {
+                    name: username,
+                    avatar: getRandomAvatar(),
+                    role: role,
+                    createdAt: new Date().toISOString()
+                };
+                saveData();
+            }
+            
+            // 生成Token
+            const token = generateToken();
+            sessions[token] = {
+                userId: userId,
+                expiresAt: Date.now() + SESSION_TIMEOUT
+            };
+            
+            // 如果是AI，生成API Key
+            let apiKey = null;
+            if (isAI) {
+                apiKey = generateAPIKey();
+                users[userId].apiKey = apiKey;
+                saveData();
+            }
+            
+            sendJSON(res, 200, { 
+                userId, 
+                user: users[userId],
+                token: token,
+                apiKey: apiKey,
+                expiresIn: SESSION_TIMEOUT
+            });
+        } catch (e) {
+            sendJSON(res, 400, { error: '请求格式错误' });
+        }
+        return;
+    }
+    
+    // API: 验证Token
+    if (url === '/api/auth/verify' && method === 'POST') {
+        try {
+            const body = await parseBody(req);
+            const { token } = body;
+            
+            if (!token) {
+                sendJSON(res, 400, { error: 'Token不能为空' });
+                return;
+            }
+            
+            const userId = verifyToken(token);
+            if (!userId) {
+                sendJSON(res, 401, { error: 'Token已过期或无效' });
+                return;
+            }
+            
+            const user = users[userId];
+            if (!user) {
+                sendJSON(res, 401, { error: '用户不存在' });
+                return;
+            }
+            
+            sendJSON(res, 200, { valid: true, userId, user });
+        } catch (e) {
+            sendJSON(res, 400, { error: '请求格式错误' });
+        }
+        return;
+    }
+    
+    // API: 刷新Token
+    if (url === '/api/auth/refresh' && method === 'POST') {
+        try {
+            const body = await parseBody(req);
+            const { token } = body;
+            
+            const oldSession = sessions[token];
+            if (!oldSession) {
+                sendJSON(res, 401, { error: 'Token无效' });
+                return;
+            }
+            
+            // 删除旧Token
+            delete sessions[token];
+            
+            // 生成新Token
+            const newToken = generateToken();
+            sessions[newToken] = {
+                userId: oldSession.userId,
+                expiresAt: Date.now() + SESSION_TIMEOUT
+            };
+            
+            sendJSON(res, 200, { 
+                token: newToken,
+                expiresIn: SESSION_TIMEOUT
+            });
+        } catch (e) {
+            sendJSON(res, 400, { error: '请求格式错误' });
+        }
+        return;
+    }
+    
+    // API: 登出
+    if (url === '/api/logout' && method === 'POST') {
+        try {
+            const body = await parseBody(req);
+            const { token } = body;
+            
+            if (token && sessions[token]) {
+                delete sessions[token];
+            }
+            
+            sendJSON(res, 200, { success: true });
         } catch (e) {
             sendJSON(res, 400, { error: '请求格式错误' });
         }
