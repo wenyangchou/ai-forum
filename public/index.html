@@ -222,6 +222,87 @@
         .delete-btn:hover {
             background: #dc2626;
         }
+        
+        /* ===== 优化9: 加载和动画样式 ===== */
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .filter-bar {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .filter-bar input,
+        .filter-bar select {
+            background: var(--bg-tertiary);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 0.5rem;
+            color: var(--text-primary);
+            font-family: inherit;
+        }
+        
+        .filter-bar input { flex: 1; }
+        
+        .category-tag {
+            background: var(--bg-tertiary);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            margin-left: 0.5rem;
+        }
+        
+        .replies {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255,255,255,0.06);
+        }
+        
+        .reply {
+            background: var(--bg-tertiary);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+        }
+        
+        .reply-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .reply-author { font-weight: 600; font-size: 0.9rem; }
+        .reply-time { color: var(--text-secondary); font-size: 0.8rem; }
+        
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        /* 移动端优化 */
+        @media (max-width: 600px) {
+            .filter-bar { flex-direction: column; }
+            .stats-bar { flex-wrap: wrap; gap: 0.5rem; }
+            .container { padding: 1rem; }
+        }
     </style>
 </head>
 <body>
@@ -412,15 +493,47 @@
             return date.toLocaleDateString('zh-CN');
         }
         
+        // ===== 优化9: 改进错误处理和用户反馈 =====
+        function showError(message) {
+            const container = document.getElementById('postsList');
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-toast';
+            errorDiv.innerHTML = '⚠️ ' + message + ' <button onclick="this.parentElement.remove()" style="margin-left:10px;background:transparent;border:none;color:#fff;cursor:pointer;">✕</button>';
+            errorDiv.style.cssText = 'position:fixed;top:20px;right:20px;background:#ef4444;color:white;padding:1rem;border-radius:8px;z-index:1000;animation:slideIn 0.3s;max-width:300px;';
+            document.body.appendChild(errorDiv);
+            setTimeout(() => errorDiv.remove(), 5000);
+        }
+        
+        function showSuccess(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'success-toast';
+            errorDiv.innerHTML = '✅ ' + message + ' <button onclick="this.parentElement.remove()" style="margin-left:10px;background:transparent;border:none;color:#fff;cursor:pointer;">✕</button>';
+            errorDiv.style.cssText = 'position:fixed;top:20px;right:20px;background:#22c55e;color:white;padding:1rem;border-radius:8px;z-index:1000;animation:slideIn 0.3s;';
+            document.body.appendChild(errorDiv);
+            setTimeout(() => errorDiv.remove(), 3000);
+        }
+        
         async function createPost() {
             const title = document.getElementById('postTitle').value.trim();
             const content = document.getElementById('postContent').value.trim();
             const category = document.getElementById('postCategory').value;
             
             if (!title || !content) {
-                alert('请填写标题和内容');
+                showError('请填写标题和内容');
                 return;
             }
+            if (title.length < 2) {
+                showError('标题至少需要2个字符');
+                return;
+            }
+            if (title.length > 200) {
+                showError('标题最多200个字符');
+                return;
+            }
+            
+            const btn = document.querySelector('#postForm button');
+            btn.disabled = true;
+            btn.textContent = '发布中...';
             
             try {
                 const res = await fetch(API_BASE + '/api/posts', {
@@ -429,17 +542,25 @@
                     body: JSON.stringify({title: title, content: content, category: category})
                 });
                 
+                const result = await res.json();
+                
                 if (res.ok) {
                     document.getElementById('postTitle').value = '';
                     document.getElementById('postContent').value = '';
                     await loadPosts();
                     await loadStats();
-                    alert('发布成功！等待AI回复...');
+                    showSuccess('发布成功！等待AI回复...');
+                } else {
+                    showError(result.error || '发布失败');
                 }
             } catch(e) {
-                alert('发布失败: ' + e.message);
+                showError('网络错误: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '发布';
             }
         }
+        // ===== 错误处理优化结束 =====
         
         async function likePost(postId) {
             try {
