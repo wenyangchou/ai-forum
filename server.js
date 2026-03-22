@@ -18,6 +18,44 @@ const sessions = {};
 // 简单缓存
 const cache = { posts: null, stats: null, lastUpdate: 0 };
 const CACHE_TTL = 5000;
+const STATS_CACHE_TTL = 30000; // 统计数据缓存30秒
+
+// ===== 优化4: XSS防护 - HTML转义函数 =====
+function escapeHtml(text) {
+    if (!text) return '';
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, c => map[c]);
+}
+
+function sanitizeInput(text) {
+    if (!text) return '';
+    // 移除危险的脚本标签和事件属性
+    return text
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+        .replace(/on\w+\s*=/gi, '');
+}
+
+function escapePost(post) {
+    if (!post) return null;
+    return {
+        ...post,
+        title: escapeHtml(post.title),
+        content: escapeHtml(post.content),
+        author: escapeHtml(post.author),
+        replies: (post.replies || []).map(r => ({
+            ...r,
+            content: escapeHtml(r.content),
+            author: escapeHtml(r.author)
+        }))
+    };
+}
+// ===== XSS防护结束 =====
 
 // ===== 优化1: API速率限制 =====
 const rateLimitMap = new Map();
@@ -161,6 +199,7 @@ function saveDB(db) {
     // 清空缓存
     cache.posts = null;
     cache.stats = null;
+    cache.statsUpdate = 0;
 }
 
 function getClientIp(req) {
@@ -316,7 +355,15 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        // ===== 优化5: 统计数据缓存 =====
         if (req.method === 'GET' && pathname === '/api/stats') {
+            // 使用缓存
+            if (cache.stats && Date.now() - cache.statsUpdate < STATS_CACHE_TTL) {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(cache.stats));
+                return;
+            }
+            
             const db = loadDB();
             const stats = {
                 totalPosts: db.posts.length,
@@ -324,10 +371,58 @@ const server = http.createServer(async (req, res) => {
                 totalViews: db.posts.reduce((sum, p) => sum + (p.views || 0), 0),
                 totalLikes: db.posts.reduce((sum, p) => sum + (p.likes || 0), 0)
             };
+            
+            // 更新缓存
+            cache.stats = stats;
+            cache.statsUpdate = Date.now();
+            
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(stats));
             return;
         }
+        // ===== 统计缓存结束 =====
+
+        // ===== 优化6: 用户个人中心API =====
+        if (req.method === 'GET' && pathname === '/api/user/me') {
+            const authHeader = req.headers['x-auth-token'] || req.headers['authorization'];
+            const token = authHeader ? authHeader.replace('Bearer ', '') : url.searchParams.get('token');
+            
+            if (!token) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: '未登录，请先登录' }));
+                return;
+            }
+            
+            const session = verifyToken(token);
+            if (!session) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: '登录已过期，请重新登录' }));
+                return;
+            }
+            
+            // 获取用户的活动统计
+            const db = loadDB();
+            const userPosts = db.posts.filter(p => p.authorId === session.userId);
+            const userLikes = db.posts.reduce((sum, p) => {
+                return sum + (p.likes || 0);
+            }, 0);
+            const userReplies = db.posts.reduce((sum, p) => {
+                return sum + (p.replies ? p.replies.filter(r => r.authorId === session.userId).length : 0);
+            }, 0);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                userId: session.userId,
+                stats: {
+                    postsCount: userPosts.length,
+                    likesReceived: userLikes,
+                    repliesCount: userReplies
+                },
+                isAI: isAIUser(session.userId)
+            }));
+            return;
+        }
+        // ===== 用户中心结束 =====
 
         if (req.method === 'GET' && pathname === '/api/config') {
             res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -383,12 +478,13 @@ const server = http.createServer(async (req, res) => {
                         return;
                     }
 
+                    // ===== 优化7: 输入过滤防止XSS =====
                     const db = loadDB();
                     const newPost = {
                         id: Date.now(),
-                        title: data.title,
-                        content: data.content,
-                        author: data.author || 'Anonymous',
+                        title: sanitizeInput(data.title),
+                        content: sanitizeInput(data.content),
+                        author: sanitizeInput(data.author) || 'Anonymous',
                         authorId: data.authorId || 'anonymous',
                         category: data.category || '其他',
                         likes: 0,
@@ -465,11 +561,12 @@ const server = http.createServer(async (req, res) => {
                         return;
                     }
 
+                    // ===== 输入过滤防止XSS =====
                     const reply = {
                         id: Date.now(),
-                        author: data.author || 'Anonymous',
+                        author: sanitizeInput(data.author) || 'Anonymous',
                         authorId: data.authorId || 'anonymous',
-                        content: data.content,
+                        content: sanitizeInput(data.content),
                         likes: 0,
                         time: new Date().toISOString()
                     };
