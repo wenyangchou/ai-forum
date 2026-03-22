@@ -15,10 +15,31 @@ const AI_ONLY_MODE = true;
 const SESSION_TIMEOUT = 7 * 24 * 60 * 60 * 1000;
 const sessions = {};
 
-// 简单缓存
-const cache = { posts: null, stats: null, lastUpdate: 0 };
+// 增强缓存机制 - 优化2
+const cache = { posts: null, stats: null, lastUpdate: 0, postDetail: {} };
 const CACHE_TTL = 5000;
 const STATS_CACHE_TTL = 30000; // 统计数据缓存30秒
+const POST_CACHE_TTL = 10000; // 帖子详情缓存10秒
+
+// ===== 优化8: 增强输入验证 =====
+function validateInput(text, fieldName, minLen, maxLen) {
+    if (!text || typeof text !== 'string') {
+        return { valid: false, error: fieldName + '不能为空' };
+    }
+    const trimmed = text.trim();
+    if (trimmed.length < minLen) {
+        return { valid: false, error: fieldName + '至少需要' + minLen + '个字符' };
+    }
+    if (trimmed.length > maxLen) {
+        return { valid: false, error: fieldName + '最多' + maxLen + '个字符' };
+    }
+    // 检查危险字符模式
+    if (/^[\s\S]*<script/i.test(trimmed) || /^[\s\S]*javascript:/i.test(trimmed) || /^[\s\S]*on\w+=/i.test(trimmed)) {
+        return { valid: false, error: fieldName + '包含不安全内容' };
+    }
+    return { valid: true };
+}
+// ===== 输入验证结束 =====
 
 // ===== 优化4: XSS防护 - HTML转义函数 =====
 function escapeHtml(text) {
@@ -430,13 +451,34 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        // ===== 优化2: 帖子详情缓存 =====
         if (req.method === 'GET' && pathname.match(/^\/api\/posts\/\d+$/)) {
             const id = parseInt(pathname.split('/').pop());
+            
+            // 检查缓存（仅对已存在的帖子）
+            const cached = cache.postDetail[id];
+            if (cached && Date.now() - cached.timestamp < POST_CACHE_TTL) {
+                // 返回缓存数据但更新浏览数
+                setTimeout(() => {
+                    const db = loadDB();
+                    const post = db.posts.find(p => p.id === id);
+                    if (post) {
+                        post.views = (post.views || 0) + 1;
+                        saveDB(db);
+                    }
+                }, 0);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(cached.data));
+                return;
+            }
+            
             const db = loadDB();
             const post = db.posts.find(p => p.id === id);
             if (post) {
                 post.views = (post.views || 0) + 1;
                 saveDB(db);
+                // 更新缓存
+                cache.postDetail[id] = { data: post, timestamp: Date.now() };
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify(post));
             } else {
@@ -445,6 +487,7 @@ const server = http.createServer(async (req, res) => {
             }
             return;
         }
+        // ===== 帖子详情缓存结束 =====
 
         if (req.method === 'POST' && pathname === '/api/posts') {
             let body = '';
@@ -467,15 +510,20 @@ const server = http.createServer(async (req, res) => {
                         return;
                     }
                     
-                    if (!data.title || data.title.length > MAX_TITLE_LENGTH) {
+                    // ===== 优化8: 使用增强输入验证 =====
+                    const titleValidation = validateInput(data.title, '标题', 1, MAX_TITLE_LENGTH);
+                    if (!titleValidation.valid) {
                         res.writeHead(400, { 'Content-Type': 'application/json' });
-                        res.end(JSON.stringify({ error: '标题不能为空，最大' + MAX_TITLE_LENGTH + '字符' }));
+                        res.end(JSON.stringify({ error: titleValidation.error }));
                         return;
                     }
-                    if (!data.content || data.content.length > MAX_CONTENT_LENGTH) {
+                    const contentValidation = validateInput(data.content, '内容', 1, MAX_CONTENT_LENGTH);
+                    if (!contentValidation.valid) {
                         res.writeHead(400, { 'Content-Type': 'application/json' });
-                        res.end(JSON.stringify({ error: '内容不能为空，最大' + MAX_CONTENT_LENGTH + '字符' }));
+                        res.end(JSON.stringify({ error: contentValidation.error }));
                         return;
+                    }
+                    // ===== 验证结束 =====
                     }
 
                     // ===== 优化7: 输入过滤防止XSS =====
