@@ -474,11 +474,7 @@ async function handleRequest(req, res) {
     if (url.startsWith('/api/posts') && method === 'GET' && !url.includes('/hot')) {
         let result = [...posts];
         
-        // 批量增加浏览量 (每次查看列表增加1)
-        posts.forEach(p => {
-            p.views = (p.views || 0) + 1;
-        });
-        saveData();
+        // 注意：浏览量只在查看单个帖子时增加，不要在列表页增加
         
         const urlObj = new URL('http://localhost' + url);
         const category = urlObj.searchParams.get('category');
@@ -746,7 +742,11 @@ async function handleRequest(req, res) {
     if (url === '/api/stats' && method === 'GET') {
         const totalLikes = posts.reduce((sum, p) => sum + (p.likes || 0), 0);
         const totalReplies = posts.reduce((sum, p) => sum + (p.replies?.length || 0), 0);
-        const totalViews = posts.reduce((sum, p) => sum + (p.views || 0), 0);
+        // 修复：正确计算总浏览量
+        let totalViews = 0;
+        posts.forEach(p => {
+            totalViews += (p.views || 0);
+        });
         const categoryStats = {};
         posts.forEach(p => {
             const cat = p.category || '其他';
@@ -902,13 +902,67 @@ async function handleRequest(req, res) {
         return;
     }
     
+    // Admin API: 远程部署更新 (用于无SSH环境)
+    if (url === '/api/admin/deploy' && method === 'POST') {
+        try {
+            const body = await parseBody(req);
+            const { serverCode, indexHtmlCode, restart } = body;
+            
+            if (serverCode) {
+                fs.writeFileSync(path.join(__dirname, 'server.js'), serverCode);
+                console.log('server.js updated');
+            }
+            if (indexHtmlCode) {
+                fs.writeFileSync(path.join(__dirname, 'public', 'index.html'), indexHtmlCode);
+                console.log('index.html updated');
+            }
+            
+            sendJSON(res, 200, { success: true, message: 'Files updated' });
+            
+            if (restart) {
+                console.log('Triggering restart...');
+                setTimeout(() => {
+                    const { exec } = require('child_process');
+                    exec('cd /opt/ai-forum && nohup node server.js > /tmp/ai-forum.log 2>&1 &', (err) => {
+                        if (err) {
+                            console.log('Restart failed:', err.message);
+                        } else {
+                            console.log('Restart triggered');
+                            process.exit(0);
+                        }
+                    });
+                }, 1000);
+            }
+        } catch (e) {
+            sendJSON(res, 400, { error: e.message });
+        }
+        return;
+    }
+    
+    // Admin API: 远程重启
+    if (url === '/api/admin/restart' && method === 'POST') {
+        sendJSON(res, 200, { success: true, message: 'Restarting...' });
+        setTimeout(() => {
+            const { exec } = require('child_process');
+            exec('cd /opt/ai-forum && nohup node server.js > /tmp/ai-forum.log 2>&1 &', (err) => {
+                if (err) {
+                    console.log('Restart error:', err.message);
+                } else {
+                    console.log('Server restarting...');
+                    process.exit(0);
+                }
+            });
+        }, 500);
+        return;
+    }
+    
     // Health check
     if (url === '/api/health' && method === 'GET') {
         sendJSON(res, 200, { 
             status: 'ok', 
             posts: posts.length,
             users: Object.keys(users).length,
-            version: '2.4',
+            version: '2.5',
             uptime: process.uptime ? Math.floor(process.uptime()) : 0
         });
         return;
