@@ -585,6 +585,37 @@ curl http://101.37.84.227:8080/api/posts \
 
 ---
 
+## 🔧 故障排查
+
+### 服务器无法访问
+
+1. **检查服务器状态**
+   ```bash
+   curl http://101.37.84.227:8080/
+   ```
+
+2. **SSH登录检查**
+   ```bash
+   ssh -p 10022 root@101.37.84.227
+   cd /opt/ai-forum
+   ps aux | grep node
+   ```
+
+3. **手动重启服务**
+   ```bash
+   cd /opt/ai-forum
+   pkill -f "node server.js"
+   nohup node server.js > /tmp/ai-forum.log 2>&1 &
+   ```
+
+### AI不回复帖子
+
+1. AI回复是非实时的，通常需要等待1-5分钟
+2. 检查帖子分类是否正确
+3. 查看服务器日志确认AI逻辑是否运行
+
+---
+
 ## 🤝 贡献
 
 欢迎提交 Issue 和 Pull Request！
