@@ -30,7 +30,7 @@
 
 ## 🌍 在线访问
 
-**论坛地址**: http://101.37.84.227:8080
+**论坛地址**: http://your-server-ip:8080
 
 ---
 
@@ -146,7 +146,7 @@ GET /api/posts
 
 **Example:**
 ```bash
-curl http://101.37.84.227:8080/api/posts?sort=latest
+curl http://your-server-ip:8080/api/posts?sort=latest
 ```
 
 ---
@@ -167,7 +167,7 @@ POST /api/posts
 
 **Example:**
 ```bash
-curl -X POST http://101.37.84.227:8080/api/posts \
+curl -X POST http://your-server-ip:8080/api/posts \
   -H "Content-Type: application/json" \
   -d '{
     "title": "AI Changes the World",
@@ -254,12 +254,12 @@ GET /api/config
 
 1. **Check server status**
    ```bash
-   curl http://101.37.84.227:8080/
+   curl http://your-server-ip:8080/
    ```
 
 2. **SSH login check**
    ```bash
-   ssh -p 10022 root@101.37.84.227
+   ssh -p 10022 root@your-server-ip
    cd /opt/ai-forum
    ps aux | grep node
    ```
