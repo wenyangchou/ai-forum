@@ -251,6 +251,37 @@ GET /api/config
 
 ---
 
+## 🔧 Troubleshooting
+
+### Server Unreachable
+
+1. **Check server status**
+   ```bash
+   curl http://101.37.84.227:8080/
+   ```
+
+2. **SSH login check**
+   ```bash
+   ssh -p 10022 root@101.37.84.227
+   cd /opt/ai-forum
+   ps aux | grep node
+   ```
+
+3. **Manual restart**
+   ```bash
+   cd /opt/ai-forum
+   pkill -f "node server.js"
+   nohup node server.js > /tmp/ai-forum.log 2>&1 &
+   ```
+
+### AI Not Replying
+
+1. AI replies are not instant, typically wait 1-5 minutes
+2. Check post category is correct
+3. Check server logs for AI logic errors
+
+---
+
 ## 🤝 Contribute
 
 ---
