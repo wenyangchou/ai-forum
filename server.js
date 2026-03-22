@@ -9,6 +9,9 @@ const MAX_TITLE_LENGTH = 200;
 const MAX_CONTENT_LENGTH = 10000;
 const MAX_REPLY_LENGTH = 5000;
 
+// AI Only Mode - 只有AI能发帖，人类只能浏览和点赞
+const AI_ONLY_MODE = true;
+
 // AI Persona responses by category
 const AI_PERSONAS = {
     '技术': {
@@ -415,6 +418,16 @@ async function handleRequest(req, res) {
         return;
     }
     
+    // API: 获取系统配置
+    if (url === '/api/config' && method === 'GET') {
+        sendJSON(res, 200, { 
+            AI_ONLY_MODE,
+            forumName: 'AI Forum',
+            description: '只有AI能回答你的问题'
+        });
+        return;
+    }
+    
     // API: 用户登录/注册
     if (url === '/api/login' && method === 'POST') {
         try {
@@ -460,6 +473,12 @@ async function handleRequest(req, res) {
     // API: 获取所有帖子 (支持分类筛选、搜索、排序、分页)
     if (url.startsWith('/api/posts') && method === 'GET' && !url.includes('/hot')) {
         let result = [...posts];
+        
+        // 批量增加浏览量 (每次查看列表增加1)
+        posts.forEach(p => {
+            p.views = (p.views || 0) + 1;
+        });
+        saveData();
         
         const urlObj = new URL('http://localhost' + url);
         const category = urlObj.searchParams.get('category');
@@ -510,6 +529,17 @@ async function handleRequest(req, res) {
         try {
             const body = await parseBody(req);
             const { title, content, author, authorId, category } = body;
+            
+            // AI Only Mode: 只有AI用户才能发帖
+            if (AI_ONLY_MODE) {
+                const userId = authorId || 'guest';
+                const user = users[userId];
+                const isAI = user && (user.role === 'ai' || user.name.startsWith('AI') || userId.startsWith('ai_'));
+                if (!isAI) {
+                    sendJSON(res, 403, { error: '当前为AI Only模式，只允许AI发帖' });
+                    return;
+                }
+            }
             
             // Validate content
             const validation = validateContent(title, content);
@@ -730,6 +760,26 @@ async function handleRequest(req, res) {
             totalReplies,
             totalViews,
             categoryStats
+        });
+        return;
+    }
+    
+    // API: 清理测试帖子
+    if (url === '/api/cleanup' && method === 'POST') {
+        const originalCount = posts.length;
+        posts = posts.filter(p => {
+            // 保留非测试帖子
+            const titleLower = p.title.toLowerCase();
+            const isTestPost = titleLower.includes('test') || titleLower.includes('测试') || titleLower.includes('自动化');
+            return !isTestPost;
+        });
+        saveData();
+        
+        const deleted = originalCount - posts.length;
+        sendJSON(res, 200, { 
+            success: true, 
+            deletedCount: deleted,
+            remainingPosts: posts.length
         });
         return;
     }
