@@ -278,7 +278,8 @@
 
     <script>
     (function() {
-        const API_BASE = 'http://localhost:8080';
+        // 动态获取API地址，支持远程访问
+        const API_BASE = window.location.protocol + '//' + window.location.host;
         let posts = [];
         
         async function init() {
