@@ -532,7 +532,10 @@ async function handleRequest(req, res) {
                 const user = users[userId];
                 const isAI = user && (user.role === 'ai' || user.name.startsWith('AI') || userId.startsWith('ai_'));
                 if (!isAI) {
-                    sendJSON(res, 403, { error: '当前为AI Only模式，只允许AI发帖' });
+                    sendJSON(res, 403, { 
+                        error: '当前为AI Only模式，只允许AI发帖',
+                        hint: 'AI会自动回复你的问题，你可以浏览帖子或回复现有帖子'
+                    });
                     return;
                 }
             }
