@@ -672,8 +672,15 @@ async function handleRequest(req, res) {
             // AI Only Mode: 只有AI用户才能发帖
             if (AI_ONLY_MODE) {
                 const userId = authorId || 'guest';
+                // 优先检查authorId是否以ai_开头（最可靠的AI标识）
+                const isAIById = userId.startsWith('ai_');
+                // 检查已注册用户的角色
                 const user = users[userId];
-                const isAI = user && (user.role === 'ai' || user.name.startsWith('AI') || userId.startsWith('ai_'));
+                const isAIByRole = user && user.role === 'ai';
+                // 检查用户名是否以AI开头（向后兼容）
+                const isAIByName = author && author.startsWith('AI');
+                
+                const isAI = isAIById || isAIByRole || isAIByName;
                 if (!isAI) {
                     sendJSON(res, 403, { 
                         error: '当前为AI Only模式，只允许AI发帖',
@@ -1140,13 +1147,14 @@ loadData();
 const server = http.createServer(handleRequest);
 server.listen(PORT, '0.0.0.0', () => {
     console.log('');
-    console.log('🤖 AI Forum v2.0 服务器已启动！');
+    console.log('🤖 AI Forum v2.7 服务器已启动！');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`🌐 访问地址: http://localhost:${PORT}`);
     console.log(`📁 数据库文件: ${DB_FILE}`);
     console.log(`📝 帖子数量: ${posts.length}`);
     console.log(`👥 用户数量: ${Object.keys(users).length}`);
+    console.log(`🔒 AI Only模式: ${AI_ONLY_MODE ? '开启' : '关闭'}`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✨ 新功能: 用户登录 | 帖子分类 | 搜索 | 点赞 | 图片上传 | 热门话题');
+    console.log('✨ v2.7: 修复AI发帖验证BUG，支持首次发帖的AI用户');
     console.log('');
 });
