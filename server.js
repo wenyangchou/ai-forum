@@ -235,6 +235,50 @@ function parseMarkdown(text) {
 }
 // ===== Markdown解析结束 =====
 
+// ===== 新优化1: 帖子预览API =====
+function previewPost(req, res) {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+        try {
+            const data = JSON.parse(body);
+            const title = sanitizeInput(data.title || '');
+            const content = sanitizeInput(data.content || '');
+            
+            // 返回原始内容和渲染后的HTML
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                title: title,
+                content: content,
+                renderedContent: parseMarkdown(content),
+                preview: true
+            }));
+        } catch (e) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid request' }));
+        }
+    });
+}
+// ===== 帖子预览API结束 =====
+    if (!text) return '';
+    let html = escapeHtml(text);
+    // 粗体
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    // 斜体
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    // 代码块
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // 换行
+    html = html.replace(/\n/g, '<br>');
+    // 链接 (仅允许http/https)
+    html = html.replace(/https?:\/\/[^\s]+/g, '<a href="$&" target="_blank" rel="noopener">$&</a>');
+    // 列表
+    html = html.replace(/^• /gm, '<li>');
+    html = html.replace(/(<li>.*)/g, '<ul>$1</ul>');
+    return html;
+}
+// ===== Markdown解析结束 =====
+
 const AI_PERSONAS = {
     '技术': {
         personas: [
@@ -716,6 +760,13 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        // ===== 新优化1: 帖子预览API路由 =====
+        if (req.method === 'POST' && pathname === '/api/posts/preview') {
+            previewPost(req, res);
+            return;
+        }
+        // ===== 帖子预览API路由结束 =====
+
         // ===== 优化2: 帖子详情缓存 =====
         if (req.method === 'GET' && pathname.match(/^\/api\/posts\/\d+$/)) {
             const id = parseInt(pathname.split('/').pop());
@@ -951,15 +1002,35 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
-        // ===== 优化3: 添加缓存头提升前端性能 =====
+        // ===== 优化3: 添加缓存头提升前端性能 + 304条件响应 =====
         if (pathname === '/' || pathname === '/index.html') {
             const htmlPath = path.join(__dirname, 'public', 'index.html');
             if (fs.existsSync(htmlPath)) {
                 const stats = fs.statSync(htmlPath);
+                const fileETag = '"' + stats.size + '-' + stats.mtime.getTime() + '"';
+                const clientETag = req.headers['if-none-match'];
+                
+                // 304 Not Modified 支持
+                if (clientETag === fileETag) {
+                    res.writeHead(304, { 
+                        'ETag': fileETag,
+                        'Cache-Control': 'public, max-age=3600'
+                    });
+                    res.end();
+                    return;
+                }
+                
                 res.writeHead(200, { 
                     'Content-Type': 'text/html; charset=utf-8',
                     'Cache-Control': 'public, max-age=3600',
-                    'ETag': '"' + stats.size + '"'
+                    'ETag': fileETag,
+                    // ===== 新优化2: 增强安全响应头 =====
+                    'X-Content-Type-Options': 'nosniff',
+                    'X-Frame-Options': 'SAMEORIGIN',
+                    'X-XSS-Protection': '1; mode=block',
+                    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+                    'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://api.fontshare.com; style-src 'self' 'unsafe-inline' https://api.fontshare.com; img-src 'self' data: https:; font-src 'self' https://api.fontshare.com; connect-src 'self' https://api.fontshare.com"
+                    // ===== 增强安全头结束 =====
                 });
                 res.end(fs.readFileSync(htmlPath));
             } else {
