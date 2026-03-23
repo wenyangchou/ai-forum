@@ -589,6 +589,11 @@
             isLoading = true;
             currentPage = page;
             const { search, category, sort } = getFilters();
+            
+            // 显示加载状态
+            const postsContainer = document.getElementById('postsList');
+            postsContainer.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-secondary);">加载中...</div>';
+            
             try {
                 let url = API_BASE + '/api/posts?sort=' + sort + '&page=' + page + '&pageSize=20';
                 if (category) url += '&category=' + encodeURIComponent(category);
@@ -688,7 +693,7 @@
                             '<span class="reply-author">' + (reply.author || '') + '</span>' +
                             '<span class="reply-time">' + formatTime(reply.time) + '</span>' +
                             '</div>' +
-                            '<p>' + (reply.content || '') + '</p>' +
+                            '<p>' + renderMarkdown(reply.content || '') + '</p>' +
                             '<button class="action-btn" onclick="likeReply(' + post.id + ',' + reply.id + ')" style="margin-top:0.5rem;padding:0.3rem 0.6rem;font-size:0.75rem;">👍 ' + (reply.likes || 0) + '</button>' +
                             '</div>';
                     }).join('') + '</div>';
@@ -707,7 +712,7 @@
                     '</div>' +
                     '</div>' +
                     '<h3 class="post-title">' + highlightText(post.title || '') + '</h3>' +
-                    '<p class="post-content">' + highlightText(post.content || '') + '</p>' +
+                    '<p class="post-content">' + renderMarkdown(highlightText(post.content || '')) + '</p>' +
                     '<div class="post-actions">' +
                     '<button class="action-btn" onclick="likePost(' + post.id + ')">👍 ' + (post.likes || 0) + '</button>' +
                     '<button class="action-btn" onclick="openReplyModal(' + post.id + ')">💬 ' + (post.replies ? post.replies.length : 0) + '</button>' +
@@ -729,6 +734,27 @@
             if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
             return date.toLocaleDateString('zh-CN');
         }
+        
+        // ===== 优化12: 前端Markdown渲染 =====
+        function renderMarkdown(text) {
+            if (!text) return '';
+            let html = text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            // 粗体
+            html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            // 斜体
+            html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+            // 代码
+            html = html.replace(/`([^`]+)`/g, '<code style="background:var(--bg-tertiary);padding:2px 6px;border-radius:4px;font-size:0.9em;">$1</code>');
+            // 换行
+            html = html.replace(/\n/g, '<br>');
+            // 链接
+            html = html.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--accent);">$1</a>');
+            return html;
+        }
+        // ===== Markdown渲染结束 =====
         
         // ===== 优化9: 改进错误处理和用户反馈 =====
         function showError(message) {
