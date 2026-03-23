@@ -21,6 +21,17 @@ const CACHE_TTL = 5000;
 const STATS_CACHE_TTL = 30000; // 统计数据缓存30秒
 const POST_CACHE_TTL = 10000; // 帖子详情缓存10秒
 
+// ===== 优化11: ETag缓存支持 =====
+let dbFileHash = '';
+function updateDbHash() {
+    try {
+        const stats = fs.statSync(DB_FILE);
+        dbFileHash = crypto.createHash('md5').update(stats.mtime.toISOString()).digest('hex');
+    } catch (e) {}
+}
+updateDbHash();
+// ===== ETag缓存结束 =====
+
 // ===== 优化8: 增强输入验证 =====
 function validateInput(text, fieldName, minLen, maxLen) {
     if (!text || typeof text !== 'string') {
@@ -124,6 +135,28 @@ const CATEGORIES = ['技术', '学习', '工作', '生活', '娱乐', '公告', 
 // ===== 优化10: 分页支持 =====
 const DEFAULT_PAGE_SIZE = 20;
 // ===== 分页支持结束 =====
+
+// ===== 优化12: 简单的Markdown解析器 =====
+// 只支持基本语法，确保安全
+function parseMarkdown(text) {
+    if (!text) return '';
+    let html = escapeHtml(text);
+    // 粗体
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    // 斜体
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    // 代码块
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // 换行
+    html = html.replace(/\n/g, '<br>');
+    // 链接 (仅允许http/https)
+    html = html.replace(/https?:\/\/[^\s]+/g, '<a href="$&" target="_blank" rel="noopener">$&</a>');
+    // 列表
+    html = html.replace(/^• /gm, '<li>');
+    html = html.replace(/(<li>.*)/g, '<ul>$1</ul>');
+    return html;
+}
+// ===== Markdown解析结束 =====
 
 const AI_PERSONAS = {
     '技术': {
@@ -354,6 +387,19 @@ const server = http.createServer(async (req, res) => {
         if (req.method === 'GET' && pathname === '/api/posts') {
             // 不使用缓存（因为有分页和排序参数）
             const db = loadDB();
+            
+            // 生成ETag
+            updateDbHash();
+            const postsHash = crypto.createHash('md5').update(JSON.stringify(db.posts.slice(0, 20))).digest('hex');
+            const etag = '"' + postsHash + '"';
+            
+            // 条件请求检查
+            const clientETag = req.headers['if-none-match'];
+            if (clientETag === etag) {
+                res.writeHead(304, { 'ETag': etag });
+                res.end();
+                return;
+            }
             const category = url.searchParams.get('category');
             const search = url.searchParams.get('search');
             const sort = url.searchParams.get('sort') || 'latest';
@@ -406,7 +452,11 @@ const server = http.createServer(async (req, res) => {
                 }
             };
             
-            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.writeHead(200, { 
+                'Content-Type': 'application/json',
+                'ETag': etag,
+                'Cache-Control': 'private, max-age=10'
+            });
             res.end(JSON.stringify(result));
             return;
         }
@@ -447,6 +497,32 @@ const server = http.createServer(async (req, res) => {
         }
         // ===== 分类API结束 =====
 
+        // ===== 优化12: Markdown渲染API =====
+        if (req.method === 'POST' && pathname === '/api/render') {
+            let body = '';
+            req.on('data', chunk => { body += chunk; });
+            req.on('end', () => {
+                try {
+                    const data = JSON.parse(body);
+                    if (!data.content) {
+                        res.writeHead(400, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ error: '内容不能为空' }));
+                        return;
+                    }
+                    // 限制内容长度
+                    const content = data.content.slice(0, 5000);
+                    const html = parseMarkdown(content);
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ html }));
+                } catch (e) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Invalid request' }));
+                }
+            });
+            return;
+        }
+        // ===== Markdown渲染结束 =====
+
         // ===== 优化9: 获取热门话题API =====
         if (req.method === 'GET' && pathname === '/api/trending') {
             const db = loadDB();
@@ -479,6 +555,25 @@ const server = http.createServer(async (req, res) => {
             return;
         }
         // ===== 热门话题API结束 =====
+
+        // ===== 优化13: 服务器状态API =====
+        if (req.method === 'GET' && pathname === '/api/server/status') {
+            const memUsage = process.memoryUsage();
+            const uptime = process.uptime();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                status: 'running',
+                uptime: Math.floor(uptime),
+                memory: {
+                    rss: Math.round(memUsage.rss / 1024 / 1024) + 'MB',
+                    heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024) + 'MB',
+                    heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024) + 'MB'
+                },
+                timestamp: new Date().toISOString()
+            }));
+            return;
+        }
+        // ===== 服务器状态API结束 =====
 
         // ===== 优化6: 用户个人中心API =====
         if (req.method === 'GET' && pathname === '/api/user/me') {
@@ -786,9 +881,9 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: 'Not found' }));
 
     } catch (e) {
-        console.error('Error:', e);
+        console.error('Error:', e.message);
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Internal server error' }));
+        res.end(JSON.stringify({ error: '服务器内部错误: ' + e.message }));
     }
 });
 
