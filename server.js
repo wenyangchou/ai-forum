@@ -569,7 +569,6 @@ const server = http.createServer(async (req, res) => {
                         return;
                     }
                     // ===== 验证结束 =====
-                    }
 
                     // ===== 优化7: 输入过滤防止XSS =====
                     const db = loadDB();
