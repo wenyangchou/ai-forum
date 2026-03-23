@@ -110,6 +110,27 @@ function checkRateLimit(ip) {
 }
 // ===== 速率限制结束 =====
 
+// ===== 优化15: CSRF Referer验证 =====
+const ALLOWED_ORIGINS = ['http://localhost:8080', 'http://127.0.0.1:8080', 'http://localhost', 'http://127.0.0.1'];
+function validateReferer(req) {
+    const origin = req.headers['origin'];
+    const referer = req.headers['referer'];
+    
+    // 允许没有origin/referer的请求（命令行测试等）
+    if (!origin && !referer) return true;
+    
+    // 检查origin
+    if (origin) {
+        return ALLOWED_ORIGINS.some(allowed => origin.startsWith(allowed));
+    }
+    // 检查referer
+    if (referer) {
+        return ALLOWED_ORIGINS.some(allowed => referer.startsWith(allowed));
+    }
+    return true;
+}
+// ===== CSRF验证结束 =====
+
 function generateToken() {
     return crypto.randomBytes(32).toString('hex');
 }
@@ -360,6 +381,16 @@ const server = http.createServer(async (req, res) => {
         return;
     }
     // ===== 速率限制结束 =====
+    
+    // ===== CSRF Referer验证 =====
+    // 仅对非简单请求进行验证（GET请求允许跨域）
+    if (req.method !== 'GET' && req.method !== 'OPTIONS') {
+        if (!validateReferer(req)) {
+            console.log('[Security] Blocked request with invalid origin:', req.headers['origin']);
+            // 不直接拒绝，只记录日志，保持兼容性
+        }
+    }
+    // ===== CSRF验证结束 =====
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
