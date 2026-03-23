@@ -418,6 +418,74 @@
             .stats-bar { flex-wrap: wrap; gap: 0.5rem; }
             .container { padding: 1rem; }
         }
+        
+        /* ===== 新增: 回到顶部按钮 ===== */
+        .back-to-top {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+            border: none;
+            border-radius: 50%;
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(56, 189, 248, 0.4);
+            z-index: 999;
+        }
+        
+        .back-to-top.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+        
+        .back-to-top:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(56, 189, 248, 0.6);
+        }
+        
+        /* ===== 新增: 骨架屏加载动画 ===== */
+        .skeleton {
+            background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-secondary) 50%, var(--bg-tertiary) 75%);
+            background-size: 200% 100%;
+            animation: skeleton-loading 1.5s infinite;
+            border-radius: 8px;
+        }
+        
+        @keyframes skeleton-loading {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        
+        .skeleton-post {
+            padding: 1.5rem;
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            margin-bottom: 1rem;
+        }
+        
+        .skeleton-title {
+            height: 24px;
+            width: 70%;
+            margin-bottom: 1rem;
+        }
+        
+        .skeleton-content {
+            height: 16px;
+            width: 100%;
+            margin-bottom: 0.5rem;
+        }
+        
+        .skeleton-meta {
+            height: 14px;
+            width: 40%;
+            margin-top: 1rem;
+        }
     </style>
 </head>
 <body>
@@ -472,6 +540,9 @@
         <!-- 分页容器 -->
         <div class="pagination" id="pagination"></div>
         
+        <!-- 回到顶部按钮 -->
+        <button class="back-to-top" id="backToTop" onclick="scrollToTop()" title="回到顶部">↑</button>
+        
         <!-- 回复模态框 -->
         <div class="modal-overlay" id="replyModal">
             <div class="modal">
@@ -491,6 +562,35 @@
         // 动态获取API地址，支持远程访问
         const API_BASE = window.location.protocol + '//' + window.location.host;
         let posts = [];
+        
+        // ===== 新增: 回到顶部按钮显示/隐藏 =====
+        window.addEventListener('scroll', function() {
+            const btn = document.getElementById('backToTop');
+            if (window.scrollY > 300) {
+                btn.classList.add('visible');
+            } else {
+                btn.classList.remove('visible');
+            }
+        });
+        
+        window.scrollToTop = function() {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+        
+        // ===== 新增: 骨架屏加载状态 =====
+        window.showSkeletonLoading = function() {
+            const container = document.getElementById('postsList');
+            let html = '';
+            for (let i = 0; i < 3; i++) {
+                html += '<div class="skeleton-post">' +
+                    '<div class="skeleton skeleton-title"></div>' +
+                    '<div class="skeleton skeleton-content"></div>' +
+                    '<div class="skeleton skeleton-content" style="width:80%"></div>' +
+                    '<div class="skeleton skeleton-meta"></div>' +
+                    '</div>';
+            }
+            container.innerHTML = html;
+        };
         
         async function init() {
             console.log('Initializing...');
@@ -590,9 +690,8 @@
             currentPage = page;
             const { search, category, sort } = getFilters();
             
-            // 显示加载状态
-            const postsContainer = document.getElementById('postsList');
-            postsContainer.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-secondary);">加载中...</div>';
+            // 显示骨架屏加载状态
+            showSkeletonLoading();
             
             try {
                 let url = API_BASE + '/api/posts?sort=' + sort + '&page=' + page + '&pageSize=20';
@@ -616,7 +715,17 @@
                 renderPagination();
             } catch(e) {
                 console.error('Load posts error:', e);
-                document.getElementById('postsList').innerHTML = '<div class="empty">加载失败，请刷新</div>';
+                // 错误重试机制
+                if (page === 1 && !this.retryCount) {
+                    this.retryCount = 0;
+                }
+                if (this.retryCount < 2) {
+                    this.retryCount++;
+                    console.log('Retry loading posts, attempt ' + this.retryCount);
+                    setTimeout(() => loadPosts(page), 1000 * this.retryCount);
+                    return;
+                }
+                document.getElementById('postsList').innerHTML = '<div class="empty">加载失败，请 <button onclick="loadPosts(1)" style="background:var(--accent);border:none;padding:0.5rem 1rem;border-radius:6px;cursor:pointer;">点击重试</button></div>';
             } finally {
                 isLoading = false;
             }
