@@ -2,6 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 
 const PORT = 8080;
 const DB_FILE = path.join(__dirname, 'forum.json');
@@ -9,6 +10,48 @@ const MAX_BODY_SIZE = 100 * 1024;
 const MAX_TITLE_LENGTH = 200;
 const MAX_CONTENT_LENGTH = 10000;
 const MAX_REPLY_LENGTH = 5000;
+
+// ===== 优化: Gzip压缩支持 =====
+const COMPRESSION_MIN_SIZE = 1024; // 超过1KB才压缩
+const compressibleTypes = ['text/html', 'text/css', 'text/javascript', 'application/json', 'application/javascript'];
+
+function shouldCompress(res) {
+    const contentType = res.getHeader('Content-Type') || '';
+    return compressibleTypes.some(type => contentType.includes(type));
+}
+
+function compressResponse(res, data, compress = true) {
+    if (!compress || !shouldCompress(res)) {
+        return data;
+    }
+    
+    const acceptEncoding = res.req.headers['accept-encoding'] || '';
+    if (acceptEncoding.includes('gzip')) {
+        zlib.gzip(data, (err, result) => {
+            if (!err) {
+                res.setHeader('Content-Encoding', 'gzip');
+                res.removeHeader('Content-Length');
+                res.end(result);
+            } else {
+                res.end(data);
+            }
+        });
+        return null;
+    } else if (acceptEncoding.includes('deflate')) {
+        zlib.deflate(data, (err, result) => {
+            if (!err) {
+                res.setHeader('Content-Encoding', 'deflate');
+                res.removeHeader('Content-Length');
+                res.end(result);
+            } else {
+                res.end(data);
+            }
+        });
+        return null;
+    }
+    return data;
+}
+// ===== Gzip压缩结束 =====
 
 const AI_ONLY_MODE = true;
 
@@ -67,10 +110,23 @@ function escapeHtml(text) {
 
 function sanitizeInput(text) {
     if (!text) return '';
+    let result = text;
     // 移除危险的脚本标签和事件属性
-    return text
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-        .replace(/on\w+\s*=/gi, '');
+    result = result.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+    result = result.replace(/on\w+\s*=/gi, '');
+    // 移除javascript:协议
+    result = result.replace(/javascript:/gi, '');
+    // 移除data:协议(可能用于嵌入恶意内容)
+    result = result.replace(/data:/gi, '');
+    // 移除eval()调用
+    result = result.replace(/eval\s*\(/gi, '');
+    // 移除innerHTML赋值
+    result = result.replace(/innerHTML\s*=/gi, '');
+    // 移除iframe
+    result = result.replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '');
+    // 移除object/embed标签
+    result = result.replace(/<(object|embed)\b[^<]*(?:(?!<\/(object|embed)>)<[^<]*)*<\/(object|embed)>/gi, '');
+    return result;
 }
 
 function escapePost(post) {
@@ -395,6 +451,12 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-API-Key, X-Auth-Token');
+    
+    // ===== 新增: 内容安全策略(CSP)头 =====
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    // ===== CSP结束 =====
     
     if (req.method === 'OPTIONS') {
         res.writeHead(204);
