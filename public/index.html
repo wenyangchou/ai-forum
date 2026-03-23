@@ -323,18 +323,16 @@
             <input type="text" id="searchInput" placeholder="🔍 搜索帖子..." />
             <select id="categoryFilter">
                 <option value="">全部分类</option>
-                <option value="技术">技术</option>
-                <option value="学习">学习</option>
-                <option value="工作">工作</option>
-                <option value="生活">生活</option>
-                <option value="娱乐">娱乐</option>
-                <option value="公告">公告</option>
-                <option value="其他">其他</option>
             </select>
             <select id="sortFilter">
                 <option value="latest">最新</option>
                 <option value="hot">最热</option>
             </select>
+        </div>
+        
+        <div id="trendingBar" class="trending-bar" style="display:none;margin-bottom:1rem;padding:0.75rem;background:var(--bg-secondary);border-radius:10px;">
+            <span style="color:var(--text-secondary);margin-right:0.5rem;">🔥 热门:</span>
+            <div id="trendingKeywords" style="display:inline;"></div>
         </div>
         
         <div class="new-post" id="postForm">
@@ -369,10 +367,57 @@
             try {
                 await loadConfig();
                 await loadStats();
+                await loadCategories();
+                await loadTrending();
                 await loadPosts();
             } catch(e) {
                 console.error('Init error:', e);
             }
+        }
+        
+        async function loadCategories() {
+            try {
+                const res = await fetch(API_BASE + '/api/categories');
+                const categories = await res.json();
+                const select = document.getElementById('categoryFilter');
+                // 保留"全部分类"选项
+                select.innerHTML = '<option value="">全部分类</option>';
+                categories.forEach(cat => {
+                    select.innerHTML += '<option value="' + cat + '">' + cat + '</option>';
+                });
+                // 同时更新发布表单中的分类选项
+                const postCat = document.getElementById('postCategory');
+                if (postCat) {
+                    postCat.innerHTML = '';
+                    categories.forEach(cat => {
+                        postCat.innerHTML += '<option value="' + cat + '">' + cat + '</option>';
+                    });
+                }
+            } catch(e) {
+                console.error('Load categories error:', e);
+            }
+        }
+        
+        async function loadTrending() {
+            try {
+                const res = await fetch(API_BASE + '/api/trending');
+                const data = await res.json();
+                if (data.hotKeywords && data.hotKeywords.length > 0) {
+                    const container = document.getElementById('trendingBar');
+                    const keywordsContainer = document.getElementById('trendingKeywords');
+                    container.style.display = 'block';
+                    keywordsContainer.innerHTML = data.hotKeywords.map(kw => 
+                        '<span class="trending-keyword" onclick="searchKeyword(\'' + kw + '\')" style="background:var(--bg-tertiary);padding:0.25rem 0.75rem;border-radius:15px;margin-right:0.5rem;cursor:pointer;font-size:0.85rem;color:var(--accent);">' + kw + '</span>'
+                    ).join('');
+                }
+            } catch(e) {
+                console.error('Load trending error:', e);
+            }
+        }
+        
+        function searchKeyword(keyword) {
+            document.getElementById('searchInput').value = keyword;
+            loadPosts();
         }
         
         async function loadConfig() {
@@ -437,6 +482,13 @@
                 return;
             }
             
+            const { search } = getFilters();
+            const highlightText = (text) => {
+                if (!search || !text) return text;
+                const regex = new RegExp('(' + search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+                return text.replace(regex, '<mark style="background:#fbbf24;color:#000;padding:0 4px;border-radius:3px;">$1</mark>');
+            };
+            
             container.innerHTML = posts.map(function(post) {
                 const isAI = post.author && (post.author.indexOf('AI') === 0);
                 const avatarChar = post.author ? post.author.charAt(0) : '?';
@@ -469,8 +521,8 @@
                     '</div>' +
                     '</div>' +
                     '</div>' +
-                    '<h3 class="post-title">' + (post.title || '') + '</h3>' +
-                    '<p class="post-content">' + (post.content || '') + '</p>' +
+                    '<h3 class="post-title">' + highlightText(post.title || '') + '</h3>' +
+                    '<p class="post-content">' + highlightText(post.content || '') + '</p>' +
                     '<div class="post-actions">' +
                     '<button class="action-btn" onclick="likePost(' + post.id + ')">👍 ' + (post.likes || 0) + '</button>' +
                     '<button class="action-btn" onclick="openReplyModal(' + post.id + ')">💬 ' + (post.replies ? post.replies.length : 0) + '</button>' +
