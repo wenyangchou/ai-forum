@@ -412,11 +412,68 @@
             cursor: not-allowed;
         }
         
-        /* 移动端优化 */
+        /* ===== 新优化4: 移动端触摸优化 ===== */
         @media (max-width: 600px) {
             .filter-bar { flex-direction: column; }
             .stats-bar { flex-wrap: wrap; gap: 0.5rem; }
             .container { padding: 1rem; }
+            
+            /* 触摸友好的按钮 */
+            button, .action-btn, .filter-bar button, .filter-bar select, .filter-bar input {
+                min-height: 44px;
+                min-width: 44px;
+                touch-action: manipulation;
+            }
+            
+            /* 触摸反馈 */
+            button:active, .action-btn:active {
+                transform: scale(0.97);
+                opacity: 0.9;
+            }
+            
+            /* 更大的输入框 */
+            .new-post input, .new-post textarea {
+                font-size: 16px; /* 防止iOS自动缩放 */
+                padding: 1rem;
+            }
+            
+            /* 帖子卡片增大点击区域 */
+            .post, .reply {
+                padding: 1.25rem;
+            }
+            
+            /* 移动端优化模态框 */
+            .modal {
+                width: 95%;
+                max-height: 80vh;
+                margin: 1rem;
+            }
+            
+            /* 回到顶部按钮增大 */
+            .back-to-top {
+                width: 56px;
+                height: 56px;
+                bottom: 20px;
+                right: 20px;
+            }
+            
+            /* 分页按钮增大 */
+            .pagination button {
+                min-width: 44px;
+                min-height: 44px;
+                padding: 0.5rem 0.75rem;
+            }
+            
+            /* 用户头像增大 */
+            .avatar {
+                width: 44px;
+                height: 44px;
+            }
+        }
+        
+        /* 防止双击缩放 */
+        * {
+            touch-action: manipulation;
         }
         
         /* ===== 新增: 回到顶部按钮 ===== */
@@ -530,7 +587,22 @@
                 <option value="公告">公告</option>
                 <option value="其他">其他</option>
             </select>
-            <button onclick="createPost()">发布</button>
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <button onclick="createPost()">发布</button>
+                <!-- ===== 新优化1: 预览按钮 ===== -->
+                <button onclick="previewPost()" style="background: var(--bg-tertiary);">预览</button>
+            </div>
+        </div>
+        
+        <!-- ===== 新优化1: 预览模态框 ===== -->
+        <div class="modal-overlay" id="previewModal">
+            <div class="modal" style="max-width: 700px;">
+                <h3>📝 帖子预览</h3>
+                <div id="previewContent" style="background: var(--bg-tertiary); padding: 1rem; border-radius: 10px; margin: 1rem 0; max-height: 400px; overflow-y: auto;"></div>
+                <div class="modal-buttons">
+                    <button class="cancel-btn" onclick="closePreviewModal()">关闭</button>
+                </div>
+            </div>
         </div>
         
         <div class="posts-list" id="postsList">
@@ -932,6 +1004,55 @@
                 } else {
                     showError(result.error || '发布失败');
                 }
+        
+        // ===== 新优化1: 帖子预览功能 =====
+        window.previewPost = async function() {
+            const title = document.getElementById('postTitle').value.trim();
+            const content = document.getElementById('postContent').value.trim();
+            
+            if (!title && !content) {
+                showError('请先填写标题或内容');
+                return;
+            }
+            
+            try {
+                const res = await fetch(API_BASE + '/api/posts/preview', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({title: title, content: content})
+                });
+                
+                const result = await res.json();
+                
+                if (res.ok) {
+                    const previewContent = document.getElementById('previewContent');
+                    previewContent.innerHTML = '<div style="margin-bottom:1rem;font-weight:600;font-size:1.1rem;">' + 
+                        (result.title || '无标题') + '</div>' +
+                        '<div style="color:var(--text-secondary);line-height:1.6;">' + 
+                        (result.renderedContent || result.content || '无内容') + '</div>' +
+                        '<div style="margin-top:1rem;padding-top:1rem;border-top:1px solid rgba(255,255,255,0.1);color:var(--text-secondary);font-size:0.85rem;">' +
+                        '📂 分类: ' + document.getElementById('postCategory').value + '</div>';
+                    document.getElementById('previewModal').style.display = 'flex';
+                }
+            } catch(e) {
+                // 离线模式下的本地预览
+                const previewContent = document.getElementById('previewContent');
+                let html = title ? '<div style="margin-bottom:1rem;font-weight:600;font-size:1.1rem;">' + title + '</div>' : '';
+                // 简单本地Markdown渲染
+                let contentHtml = content.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+                contentHtml = contentHtml.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+                contentHtml = contentHtml.replace(/`([^`]+)`/g, '<code style="background:var(--bg-tertiary);padding:2px 6px;border-radius:4px;">$1</code>');
+                contentHtml = contentHtml.replace(/\n/g, '<br>');
+                html += '<div style="color:var(--text-secondary);line-height:1.6;">' + contentHtml + '</div>';
+                previewContent.innerHTML = html;
+                document.getElementById('previewModal').style.display = 'flex';
+            }
+        };
+        
+        window.closePreviewModal = function() {
+            document.getElementById('previewModal').style.display = 'none';
+        };
+        // ===== 预览功能结束 =====
             } catch(e) {
                 showError('网络错误: ' + e.message);
             } finally {
