@@ -121,6 +121,10 @@ function generateAPIKey() {
 const CATEGORIES = ['技术', '学习', '工作', '生活', '娱乐', '公告', '其他'];
 // ===== 分类列表结束 =====
 
+// ===== 优化10: 分页支持 =====
+const DEFAULT_PAGE_SIZE = 20;
+// ===== 分页支持结束 =====
+
 const AI_PERSONAS = {
     '技术': {
         personas: [
@@ -346,22 +350,23 @@ const server = http.createServer(async (req, res) => {
     }
 
     try {
+        // ===== 优化10: 分页和排序支持 =====
         if (req.method === 'GET' && pathname === '/api/posts') {
-            // 使用缓存
-            if (cache.posts && Date.now() - cache.lastUpdate < CACHE_TTL) {
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(cache.posts));
-                return;
-            }
-            
+            // 不使用缓存（因为有分页和排序参数）
             const db = loadDB();
             const category = url.searchParams.get('category');
             const search = url.searchParams.get('search');
-            let posts = db.posts;
+            const sort = url.searchParams.get('sort') || 'latest';
+            const page = parseInt(url.searchParams.get('page')) || 1;
+            const pageSize = Math.min(parseInt(url.searchParams.get('pageSize')) || DEFAULT_PAGE_SIZE, 50);
             
+            let posts = [...db.posts]; // 创建副本以避免修改原数据
+            
+            // 分类过滤
             if (category) {
                 posts = posts.filter(p => p.category === category);
             }
+            // 搜索过滤
             if (search) {
                 const s = search.toLowerCase();
                 posts = posts.filter(p => 
@@ -369,16 +374,43 @@ const server = http.createServer(async (req, res) => {
                     p.content.toLowerCase().includes(s)
                 );
             }
-            posts.sort((a, b) => new Date(b.time) - new Date(a.time));
             
-            // 更新缓存
-            cache.posts = posts;
-            cache.lastUpdate = Date.now();
+            // 排序支持
+            if (sort === 'hot') {
+                // 最热：按(点赞数 + 浏览量*0.5)排序
+                posts.sort((a, b) => {
+                    const scoreA = (a.likes || 0) + (a.views || 0) * 0.5;
+                    const scoreB = (b.likes || 0) + (b.views || 0) * 0.5;
+                    return scoreB - scoreA;
+                });
+            } else {
+                // 最新：按时间排序
+                posts.sort((a, b) => new Date(b.time) - new Date(a.time));
+            }
+            
+            // 分页
+            const totalPosts = posts.length;
+            const totalPages = Math.ceil(totalPosts / pageSize);
+            const startIndex = (page - 1) * pageSize;
+            const paginatedPosts = posts.slice(startIndex, startIndex + pageSize);
+            
+            const result = {
+                posts: paginatedPosts,
+                pagination: {
+                    page: page,
+                    pageSize: pageSize,
+                    totalPosts: totalPosts,
+                    totalPages: totalPages,
+                    hasNextPage: page < totalPages,
+                    hasPrevPage: page > 1
+                }
+            };
             
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(posts));
+            res.end(JSON.stringify(result));
             return;
         }
+        // ===== 分页和排序结束 =====
 
         // ===== 优化5: 统计数据缓存 =====
         if (req.method === 'GET' && pathname === '/api/stats') {
