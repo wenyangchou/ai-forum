@@ -260,24 +260,6 @@ function previewPost(req, res) {
     });
 }
 // ===== 帖子预览API结束 =====
-    if (!text) return '';
-    let html = escapeHtml(text);
-    // 粗体
-    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    // 斜体
-    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-    // 代码块
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    // 换行
-    html = html.replace(/\n/g, '<br>');
-    // 链接 (仅允许http/https)
-    html = html.replace(/https?:\/\/[^\s]+/g, '<a href="$&" target="_blank" rel="noopener">$&</a>');
-    // 列表
-    html = html.replace(/^• /gm, '<li>');
-    html = html.replace(/(<li>.*)/g, '<ul>$1</ul>');
-    return html;
-}
-// ===== Markdown解析结束 =====
 
 const AI_PERSONAS = {
     '技术': {
@@ -371,10 +353,34 @@ function detectKeywords(content) {
 function loadDB() {
     try {
         const data = fs.readFileSync(DB_FILE, 'utf8');
-        return JSON.parse(data);
+        const db = JSON.parse(data);
+        // ===== 优化: 确保数据库结构完整 =====
+        if (!db.favorites) db.favorites = {};
+        if (!db.postIndex) db.postIndex = {}; // 帖子索引加速查询
+        return db;
     } catch (e) {
-        return { posts: [], users: {} };
+        return { posts: [], users: {}, favorites: {}, postIndex: {} };
     }
+}
+
+// ===== 新优化: 数据库索引构建（优化查询性能）=====
+function buildPostIndex(db) {
+    const index = {};
+    db.posts.forEach((post, idx) => {
+        // 按ID索引
+        index['id_' + post.id] = idx;
+        // 按分类索引
+        if (post.category) {
+            if (!index['cat_' + post.category]) index['cat_' + post.category] = [];
+            index['cat_' + post.category].push(post.id);
+        }
+        // 按作者索引
+        if (post.authorId) {
+            if (!index['author_' + post.authorId]) index['author_' + post.authorId] = [];
+            index['author_' + post.authorId].push(post.id);
+        }
+    });
+    return index;
 }
 
 function saveDB(db) {
@@ -886,6 +892,125 @@ const server = http.createServer(async (req, res) => {
             }
             return;
         }
+
+        // ===== 新优化: 收藏功能 API =====
+        // POST /api/posts/:id/favorite - 收藏帖子
+        if (req.method === 'POST' && pathname.match(/^\/api\/posts\/\d+\/favorite$/)) {
+            const id = parseInt(pathname.split('/')[3]);
+            const authHeader = req.headers['x-auth-token'] || req.headers['authorization'];
+            const token = authHeader ? authHeader.replace('Bearer ', '') : url.searchParams.get('token');
+            
+            if (!token) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: '请先登录后再收藏' }));
+                return;
+            }
+            
+            const session = verifyToken(token);
+            if (!session) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: '登录已过期，请重新登录' }));
+                return;
+            }
+            
+            const db = loadDB();
+            const post = db.posts.find(p => p.id === id);
+            if (!post) {
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Post not found' }));
+                return;
+            }
+            
+            // 初始化用户收藏列表
+            if (!db.favorites) db.favorites = {};
+            if (!db.favorites[session.userId]) db.favorites[session.userId] = [];
+            
+            // 检查是否已收藏
+            const favorites = db.favorites[session.userId];
+            if (favorites.includes(id)) {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, favorited: true, message: '已收藏' }));
+                return;
+            }
+            
+            // 添加收藏
+            favorites.push(id);
+            post.favorites = (post.favorites || 0) + 1;
+            saveDB(db);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, favorited: true, message: '收藏成功' }));
+            return;
+        }
+
+        // DELETE /api/posts/:id/favorite - 取消收藏
+        if (req.method === 'DELETE' && pathname.match(/^\/api\/posts\/\d+\/favorite$/)) {
+            const id = parseInt(pathname.split('/')[3]);
+            const authHeader = req.headers['x-auth-token'] || req.headers['authorization'];
+            const token = authHeader ? authHeader.replace('Bearer ', '') : url.searchParams.get('token');
+            
+            if (!token) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: '请先登录' }));
+                return;
+            }
+            
+            const session = verifyToken(token);
+            if (!session) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: '登录已过期' }));
+                return;
+            }
+            
+            const db = loadDB();
+            const post = db.posts.find(p => p.id === id);
+            
+            if (!db.favorites || !db.favorites[session.userId]) {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, favorited: false }));
+                return;
+            }
+            
+            const favorites = db.favorites[session.userId];
+            const idx = favorites.indexOf(id);
+            if (idx > -1) {
+                favorites.splice(idx, 1);
+                if (post && post.favorites) post.favorites--;
+                saveDB(db);
+            }
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, favorited: false, message: '已取消收藏' }));
+            return;
+        }
+
+        // GET /api/favorites - 获取用户收藏列表
+        if (req.method === 'GET' && pathname === '/api/favorites') {
+            const authHeader = req.headers['x-auth-token'] || req.headers['authorization'];
+            const token = authHeader ? authHeader.replace('Bearer ', '') : url.searchParams.get('token');
+            
+            if (!token) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: '请先登录' }));
+                return;
+            }
+            
+            const session = verifyToken(token);
+            if (!session) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: '登录已过期' }));
+                return;
+            }
+            
+            const db = loadDB();
+            const favoriteIds = db.favorites && db.favorites[session.userId] ? db.favorites[session.userId] : [];
+            const favoritePosts = db.posts.filter(p => favoriteIds.includes(p.id));
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ favorites: favoritePosts, count: favoritePosts.length }));
+            return;
+        }
+        // ===== 收藏功能结束 =====
 
         if (req.method === 'DELETE' && pathname.match(/^\/api\/posts\/\d+$/)) {
             const id = parseInt(pathname.split('/')[3]);
