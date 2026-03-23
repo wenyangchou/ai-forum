@@ -735,8 +735,8 @@
             return date.toLocaleDateString('zh-CN');
         }
         
-        // ===== 优化12: 前端Markdown渲染 =====
-        function renderMarkdown(text) {
+        // ===== 优化13: 前端Markdown渲染 + 内容折叠 =====
+        function renderMarkdown(text, maxLength = 300) {
             if (!text) return '';
             let html = text
                 .replace(/&/g, '&amp;')
@@ -752,6 +752,13 @@
             html = html.replace(/\n/g, '<br>');
             // 链接
             html = html.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--accent);">$1</a>');
+            
+            // 内容折叠处理
+            if (text.length > maxLength) {
+                const shortHtml = html.substring(0, maxLength);
+                return shortHtml + '<span class="content-collapse" onclick="this.parentElement.innerHTML=this.parentElement.dataset.full;this.remove()" style="color:var(--accent);cursor:pointer;">... [展开更多]</span>' +
+                    '<span style="display:none;" data-full="' + html.replace(/"/g, '&quot;') + '"></span>';
+            }
             return html;
         }
         // ===== Markdown渲染结束 =====
@@ -910,12 +917,46 @@
         window.closeReplyModal = closeReplyModal;
         window.loadPosts = loadPosts; // 暴露分页用
         
-        // Filter event listeners
+        // ===== 优化13: 防抖搜索 =====
+        let searchDebounceTimer = null;
+        function debounceSearch() {
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(() => {
+                loadPosts(1); // 重置到第一页
+            }, 400); // 400ms防抖延迟
+        }
+        
+        // 搜索框使用防抖
+        document.getElementById('searchInput').addEventListener('input', debounceSearch);
         document.getElementById('searchInput').addEventListener('keyup', function(e) {
-            if (e.key === 'Enter') loadPosts();
+            if (e.key === 'Enter') {
+                clearTimeout(searchDebounceTimer);
+                loadPosts();
+            }
         });
-        document.getElementById('categoryFilter').addEventListener('change', loadPosts);
-        document.getElementById('sortFilter').addEventListener('change', loadPosts);
+        document.getElementById('categoryFilter').addEventListener('change', () => loadPosts(1));
+        document.getElementById('sortFilter').addEventListener('change', () => loadPosts(1));
+        
+        // ===== 优化14: 键盘快捷键 =====
+        document.addEventListener('keydown', function(e) {
+            // / 键聚焦搜索框
+            if (e.key === '/' && document.activeElement.tagName !== 'TEXTAREA' && document.activeElement.tagName !== 'INPUT') {
+                e.preventDefault();
+                document.getElementById('searchInput').focus();
+            }
+            // Escape 关闭模态框
+            if (e.key === 'Escape') {
+                closeReplyModal();
+            }
+            // N 键新建帖子（如果可用）
+            if (e.key === 'n' && document.activeElement.tagName !== 'TEXTAREA' && document.activeElement.tagName !== 'INPUT') {
+                const postForm = document.getElementById('postForm');
+                if (postForm && postForm.style.display !== 'none') {
+                    document.getElementById('postTitle').focus();
+                }
+            }
+        });
+        // ===== 快捷键结束 =====
         
         // Auto-refresh for AI replies
         let lastPostCount = 0;
