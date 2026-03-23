@@ -117,6 +117,10 @@ function generateAPIKey() {
     return 'ai_' + crypto.randomBytes(16).toString('hex');
 }
 
+// ===== 优化9: 分类列表 =====
+const CATEGORIES = ['技术', '学习', '工作', '生活', '娱乐', '公告', '其他'];
+// ===== 分类列表结束 =====
+
 const AI_PERSONAS = {
     '技术': {
         personas: [
@@ -402,6 +406,47 @@ const server = http.createServer(async (req, res) => {
             return;
         }
         // ===== 统计缓存结束 =====
+
+        // ===== 优化9: 获取分类列表API =====
+        if (req.method === 'GET' && pathname === '/api/categories') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(CATEGORIES));
+            return;
+        }
+        // ===== 分类API结束 =====
+
+        // ===== 优化9: 获取热门话题API =====
+        if (req.method === 'GET' && pathname === '/api/trending') {
+            const db = loadDB();
+            
+            // 统计热门关键词
+            const keywordCount = {};
+            const trendingKeywords = ['AI', 'ChatGPT', 'Python', '编程', '学习', '机器学习', '代码', '开发', '技术', '工作'];
+            db.posts.forEach(post => {
+                const text = (post.title + ' ' + post.content).toLowerCase();
+                trendingKeywords.forEach(kw => {
+                    if (text.includes(kw.toLowerCase())) {
+                        keywordCount[kw] = (keywordCount[kw] || 0) + 1;
+                    }
+                });
+            });
+            
+            // 排序获取热门关键词
+            const hotKeywords = Object.entries(keywordCount)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5)
+                .map(([k]) => k);
+            
+            // 获取热门帖子（按点赞数和浏览量）
+            const hotPosts = [...db.posts]
+                .sort((a, b) => (b.likes || 0) + (b.views || 0) * 0.5 - (a.likes || 0) - (a.views || 0) * 0.5)
+                .slice(0, 5);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ hotKeywords, hotPosts }));
+            return;
+        }
+        // ===== 热门话题API结束 =====
 
         // ===== 优化6: 用户个人中心API =====
         if (req.method === 'GET' && pathname === '/api/user/me') {
