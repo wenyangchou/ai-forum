@@ -95,6 +95,121 @@
         
         .posts-list { display: flex; flex-direction: column; gap: 1rem; }
         
+        /* ===== 优化10: 分页样式 ===== */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 1.5rem;
+            padding: 1rem;
+        }
+        
+        .pagination button {
+            background: var(--bg-tertiary);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 0.5rem 1rem;
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .pagination button:hover:not(:disabled) {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+        
+        .pagination button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        
+        .pagination .page-info {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            padding: 0 1rem;
+        }
+        
+        /* ===== 优化11: 模态框样式 ===== */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+        }
+        
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        
+        .modal {
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            padding: 1.5rem;
+            max-width: 500px;
+            width: 90%;
+            transform: scale(0.9);
+            transition: transform 0.3s;
+        }
+        
+        .modal-overlay.active .modal {
+            transform: scale(1);
+        }
+        
+        .modal h3 {
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+        
+        .modal textarea {
+            width: 100%;
+            background: var(--bg-tertiary);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 0.75rem;
+            color: var(--text-primary);
+            font-family: inherit;
+            resize: vertical;
+            min-height: 100px;
+            margin-bottom: 1rem;
+        }
+        
+        .modal-buttons {
+            display: flex;
+            gap: 0.75rem;
+            justify-content: flex-end;
+        }
+        
+        .modal-buttons button {
+            padding: 0.6rem 1.2rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        
+        .modal-buttons .cancel-btn {
+            background: var(--bg-tertiary);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: var(--text-secondary);
+        }
+        
+        .modal-buttons .submit-btn {
+            background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+            border: none;
+            color: white;
+        }
+        
         .post {
             background: var(--bg-secondary);
             border-radius: 16px;
@@ -353,6 +468,21 @@
         <div class="posts-list" id="postsList">
             <div class="empty">加载中... <span class="loading-dot">.</span><span class="loading-dot">.</span><span class="loading-dot">.</span></div>
         </div>
+        
+        <!-- 分页容器 -->
+        <div class="pagination" id="pagination"></div>
+        
+        <!-- 回复模态框 -->
+        <div class="modal-overlay" id="replyModal">
+            <div class="modal">
+                <h3>回复帖子</h3>
+                <textarea id="replyContent" placeholder="写下你的回复..." rows="4"></textarea>
+                <div class="modal-buttons">
+                    <button class="cancel-btn" onclick="closeReplyModal()">取消</button>
+                    <button class="submit-btn" onclick="submitReplyFromModal()">发送回复</button>
+                </div>
+            </div>
+        </div>
         <style>.loading-dot{animation:blink 1s infinite}@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}</style>
     </div>
 
@@ -454,19 +584,31 @@
         }
         
         let isLoading = false;
-        async function loadPosts() {
+        async function loadPosts(page = 1) {
             if (isLoading) return;
             isLoading = true;
+            currentPage = page;
             const { search, category, sort } = getFilters();
             try {
-                let url = API_BASE + '/api/posts?sort=' + sort;
+                let url = API_BASE + '/api/posts?sort=' + sort + '&page=' + page + '&pageSize=20';
                 if (category) url += '&category=' + encodeURIComponent(category);
                 if (search) url += '&search=' + encodeURIComponent(search);
                 
                 const res = await fetch(url);
                 const data = await res.json();
-                posts = data.posts || [];
+                
+                // 兼容有无分页的响应
+                if (data.pagination) {
+                    posts = data.posts || [];
+                    totalPages = data.pagination.totalPages || 1;
+                } else {
+                    // 旧API兼容
+                    posts = Array.isArray(data) ? data : (data.posts || []);
+                    totalPages = 1;
+                }
+                
                 renderPosts();
+                renderPagination();
             } catch(e) {
                 console.error('Load posts error:', e);
                 document.getElementById('postsList').innerHTML = '<div class="empty">加载失败，请刷新</div>';
@@ -474,6 +616,49 @@
                 isLoading = false;
             }
         }
+        
+        // ===== 优化10: 分页渲染 =====
+        function renderPagination() {
+            const container = document.getElementById('pagination');
+            if (totalPages <= 1) {
+                container.innerHTML = '';
+                return;
+            }
+            
+            let html = '';
+            // 上一页
+            html += '<button onclick="loadPosts(' + (currentPage - 1) + ')" ' + (currentPage <= 1 ? 'disabled' : '') + '>上一页</button>';
+            
+            // 页码
+            const maxVisible = 5;
+            let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+            let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+            
+            if (endPage - startPage < maxVisible - 1) {
+                startPage = Math.max(1, endPage - maxVisible + 1);
+            }
+            
+            if (startPage > 1) {
+                html += '<button onclick="loadPosts(1)">1</button>';
+                if (startPage > 2) html += '<span class="page-info">...</span>';
+            }
+            
+            for (let i = startPage; i <= endPage; i++) {
+                html += '<button onclick="loadPosts(' + i + ')" ' + (i === currentPage ? 'style="background:var(--accent)"' : '') + '>' + i + '</button>';
+            }
+            
+            if (endPage < totalPages) {
+                if (endPage < totalPages - 1) html += '<span class="page-info">...</span>';
+                html += '<button onclick="loadPosts(' + totalPages + ')">' + totalPages + '</button>';
+            }
+            
+            // 下一页
+            html += '<button onclick="loadPosts(' + (currentPage + 1) + ')" ' + (currentPage >= totalPages ? 'disabled' : '') + '>下一页</button>';
+            html += '<span class="page-info">共 ' + totalPages + ' 页</span>';
+            
+            container.innerHTML = html;
+        }
+        // ===== 分页结束 =====
         
         function renderPosts() {
             const container = document.getElementById('postsList');
@@ -623,12 +808,35 @@
             }
         }
         
+        // ===== 优化11: 改进回复体验 - 模态框 =====
         function openReplyModal(postId) {
-            const content = prompt('请输入回复内容:');
-            if (content) {
-                submitReply(postId, content);
-            }
+            currentReplyPostId = postId;
+            document.getElementById('replyContent').value = '';
+            document.getElementById('replyModal').classList.add('active');
+            document.getElementById('replyContent').focus();
         }
+        
+        function closeReplyModal() {
+            document.getElementById('replyModal').classList.remove('active');
+            currentReplyPostId = null;
+        }
+        
+        async function submitReplyFromModal() {
+            const content = document.getElementById('replyContent').value.trim();
+            if (!content) {
+                showError('请输入回复内容');
+                return;
+            }
+            
+            if (content.length > 5000) {
+                showError('回复内容最多5000个字符');
+                return;
+            }
+            
+            closeReplyModal();
+            await submitReply(currentReplyPostId, content);
+        }
+        // ===== 回复模态框结束 =====
         
         async function submitReply(postId, content) {
             try {
@@ -672,7 +880,9 @@
         window.likeReply = likeReply;
         window.openReplyModal = openReplyModal;
         window.submitReply = submitReply;
-        window.deletePost = deletePost;
+        window.submitReplyFromModal = submitReplyFromModal;
+        window.closeReplyModal = closeReplyModal;
+        window.loadPosts = loadPosts; // 暴露分页用
         
         // Filter event listeners
         document.getElementById('searchInput').addEventListener('keyup', function(e) {
