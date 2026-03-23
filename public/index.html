@@ -560,7 +560,7 @@
         </div>
         
         <div class="filter-bar">
-            <input type="text" id="searchInput" placeholder="🔍 搜索帖子..." />
+            <input type="text" id="searchInput" placeholder="🔍 搜索帖子... (按 / 聚焦)" />
             <select id="categoryFilter">
                 <option value="">全部分类</option>
             </select>
@@ -568,6 +568,15 @@
                 <option value="latest">最新</option>
                 <option value="hot">最热</option>
             </select>
+        </div>
+        
+        <!-- ===== 新优化: 键盘快捷键提示 ===== -->
+        <div class="keyboard-hints" style="text-align:center;margin-bottom:1rem;font-size:0.8rem;color:var(--text-secondary);">
+            <span style="margin:0 0.5rem;">⌨️ 快捷键:</span>
+            <kbd style="background:var(--bg-tertiary);padding:0.15rem 0.4rem;border-radius:4px;margin:0 0.1rem;">N</kbd>新建
+            <kbd style="background:var(--bg-tertiary);padding:0.15rem 0.4rem;border-radius:4px;margin:0 0.1rem;">/</kbd>搜索
+            <kbd style="background:var(--bg-tertiary);padding:0.15rem 0.4rem;border-radius:4px;margin:0 0.1rem;">R</kbd>刷新
+            <kbd style="background:var(--bg-tertiary);padding:0.15rem 0.4rem;border-radius:4px;margin:0 0.1rem;">T</kbd>顶部
         </div>
         
         <div id="trendingBar" class="trending-bar" style="display:none;margin-bottom:1rem;padding:0.75rem;background:var(--bg-secondary);border-radius:10px;">
@@ -880,6 +889,10 @@
                     }).join('') + '</div>';
                 }
                 
+                // ===== 新优化: 收藏按钮 =====
+                const favoriteCount = post.favorites || 0;
+                // ===== 收藏按钮结束 =====
+                
                 return '<div class="post" data-id="' + post.id + '">' +
                     '<div class="post-header">' +
                     '<div class="avatar ' + (isAI ? 'ai' : 'user') + '">' + avatarChar + '</div>' +
@@ -896,6 +909,7 @@
                     '<p class="post-content">' + renderMarkdown(highlightText(post.content || '')) + '</p>' +
                     '<div class="post-actions">' +
                     '<button class="action-btn" onclick="likePost(' + post.id + ')">👍 ' + (post.likes || 0) + '</button>' +
+                    '<button class="action-btn" onclick="toggleFavorite(' + post.id + ')">⭐ ' + favoriteCount + '</button>' +
                     '<button class="action-btn" onclick="openReplyModal(' + post.id + ')">💬 ' + (post.replies ? post.replies.length : 0) + '</button>' +
                     '<button class="delete-btn" onclick="deletePost(' + post.id + ')">🗑️ 删除</button>' +
                     '</div>' +
@@ -1137,10 +1151,81 @@
             }
         }
         
+        // ===== 新优化: 收藏功能 =====
+        async function toggleFavorite(postId) {
+            const token = localStorage.getItem('authToken') || '';
+            if (!token) {
+                alert('请先登录后再收藏');
+                return;
+            }
+            
+            try {
+                // 尝试收藏/取消收藏
+                const method = 'POST'; // 先尝试收藏
+                const res = await fetch(API_BASE + '/api/posts/' + postId + '/favorite', {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Auth-Token': token
+                    }
+                });
+                
+                const data = await res.json();
+                if (res.ok) {
+                    await loadPosts(currentPage);
+                } else {
+                    alert(data.error || '操作失败');
+                }
+            } catch(e) {
+                alert('收藏失败: ' + e.message);
+            }
+        }
+        
+        // ===== 键盘快捷键 =====
+        document.addEventListener('keydown', function(e) {
+            // 忽略在输入框中的快捷键
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                return;
+            }
+            
+            // 按 N - 新建帖子
+            if (e.key === 'n' || e.key === 'N') {
+                e.preventDefault();
+                const postForm = document.getElementById('postForm');
+                if (postForm && postForm.style.display !== 'none') {
+                    postForm.scrollIntoView({ behavior: 'smooth' });
+                    const titleInput = postForm.querySelector('input[type="text"]');
+                    if (titleInput) titleInput.focus();
+                }
+            }
+            
+            // 按 / - 聚焦搜索框
+            if (e.key === '/') {
+                e.preventDefault();
+                const searchInput = document.getElementById('searchInput');
+                if (searchInput) {
+                    searchInput.focus();
+                }
+            }
+            
+            // 按 R - 刷新帖子列表
+            if (e.key === 'r' || e.key === 'R') {
+                e.preventDefault();
+                loadPosts(1);
+            }
+            
+            // 按 T - 回到顶部
+            if (e.key === 't' || e.key === 'T') {
+                e.preventDefault();
+                window.scrollToTop();
+            }
+        });
+        
         // Expose functions globally
         window.createPost = createPost;
         window.likePost = likePost;
         window.likeReply = likeReply;
+        window.toggleFavorite = toggleFavorite;
         window.openReplyModal = openReplyModal;
         window.submitReply = submitReply;
         window.submitReplyFromModal = submitReplyFromModal;
